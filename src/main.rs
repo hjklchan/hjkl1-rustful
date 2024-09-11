@@ -53,13 +53,16 @@ async fn main() {
 }
 
 mod categories {
+    use axum::extract::Path;
     use axum::extract::Query;
     use axum::Json;
+    use sqlx::MySql;
 
     use crate::AppState;
 
     use super::IntoResponse;
     use super::State;
+    use axum::http::StatusCode;
 
     #[derive(Debug, serde::Deserialize)]
     pub struct CreateCategory {
@@ -67,11 +70,12 @@ mod categories {
         pub name: String,
     }
 
-    #[derive(Debug, serde::Serialize)]
+    #[derive(Debug, serde::Serialize, sqlx::FromRow)]
     pub struct Category {
-        pub id: i64,
-        pub parent_id: i64,
+        pub id: u64,
+        // pub parent_id: u64,
         pub name: String,
+        pub description: Option<String>,
     }
 
     #[derive(Debug, serde::Deserialize)]
@@ -79,23 +83,31 @@ mod categories {
         parent_id: Option<i64>,
     }
 
+    // Category list
     pub async fn list(
         State(AppState { ref db }): State<AppState>,
         Query(params): Query<ListParams>,
     ) -> impl IntoResponse {
         let parent_id = params.parent_id.unwrap_or_default();
 
-        let sql = r#"SELECT `id`, `name` FROM `categories` WHERE `parent_id` = ?"#;
+        let sql = r#"SELECT `id`, `name`, `description` FROM `categories` WHERE `parent_id` = ?"#;
 
-        let mut rows = sqlx::query_as<_, Category>(sql).bind(parent_id);
+        let rows = sqlx::query_as::<_, Category>(sql)
+            .bind(parent_id)
+            .fetch_all(db)
+            .await
+            .unwrap();
 
+        println!("{rows:#?}");
         "Categories"
     }
 
     pub async fn get(State(AppState { ref db }): State<AppState>) -> impl IntoResponse {
+        _ = db;
         "Get category"
     }
 
+    // Create category
     pub async fn create(
         State(AppState { ref db }): State<AppState>,
         Json(req): Json<CreateCategory>,
@@ -122,11 +134,32 @@ mod categories {
         "Update category"
     }
 
-    pub async fn delete(State(AppState { ref db }): State<AppState>) -> impl IntoResponse {
-        "Delete category"
+    pub async fn delete(
+        State(AppState { ref db }): State<AppState>,
+        Path(id): Path<u64>,
+    ) -> impl IntoResponse {
+        let sql = "DELETE FROM `categories` WHERE `id` = ?";
+
+        let res = sqlx::query(sql).bind(id).execute(db).await.unwrap();
+        if res.rows_affected() == 1 {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "ok"
+                })),
+            );
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "message": "record does not exist"
+                })),
+            );
+        }
     }
 
     pub async fn soft_delete(State(AppState { ref db }): State<AppState>) -> impl IntoResponse {
+        // The table structure does not support soft deletion
         "Soft delete category"
     }
 }
