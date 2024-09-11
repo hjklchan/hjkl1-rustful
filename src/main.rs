@@ -1,8 +1,9 @@
 use std::time::Duration;
 
-use axum::{extract::State, response::IntoResponse, routing, Router};
+use axum::{extract::State, http::Method, response::IntoResponse, routing, Router};
 use sqlx::{mysql::MySqlPoolOptions, MySql, Pool};
 use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 struct AppState {
@@ -23,6 +24,8 @@ async fn main() {
         .await
         .unwrap();
 
+    let cors_middleware = CorsLayer::new().allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE]).allow_origin(Any);
+
     // Router
     let app = Router::new()
         .route("/posts", routing::get(posts::list))
@@ -33,6 +36,7 @@ async fn main() {
             "/posts/:id/soft_delete",
             routing::delete(posts::soft_delete),
         )
+        .route("/posts/:id/recover", routing::patch(posts::recover))
         .route("/posts", routing::post(posts::create))
         // Categories
         .route("/categories", routing::post(categories::create))
@@ -44,6 +48,7 @@ async fn main() {
             "/categories/:id/soft_delete",
             routing::delete(categories::soft_delete),
         )
+        .layer(cors_middleware)
         .with_state(AppState { db: pool });
 
     // Tcp listener
@@ -98,8 +103,13 @@ mod categories {
             .await
             .unwrap();
 
-        println!("{rows:#?}");
-        "Categories"
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "ok",
+                "data": rows
+            })),
+        )
     }
 
     pub async fn get(State(AppState { ref db }): State<AppState>) -> impl IntoResponse {
@@ -165,29 +175,251 @@ mod categories {
 }
 
 mod posts {
+    use axum::{
+        extract::{Path, Query, State},
+        http::StatusCode,
+        Json,
+    };
+    use chrono;
+    use sqlx::QueryBuilder;
+
+    use crate::AppState;
+
     use super::IntoResponse;
 
-    pub async fn list() -> impl IntoResponse {
-        "Posts"
+    #[derive(Debug, serde::Deserialize)]
+    pub struct CreatePost {
+        category_id: u64,
+        title: String,
+        description: Option<String>,
+        body: Option<String>,
     }
 
-    pub async fn get() -> impl IntoResponse {
-        "Get post"
+    #[derive(Debug, serde::Serialize, sqlx::FromRow)]
+    pub struct Post {
+        id: u64,
+        category_id: u64,
+        category_name: String,
+        title: String,
+        description: Option<String>,
+        created_at: Option<chrono::DateTime<chrono::Local>>,
+        updated_at: Option<chrono::DateTime<chrono::Local>>,
     }
 
-    pub async fn create() -> impl IntoResponse {
-        "Create Post"
+    #[derive(Debug, serde::Serialize, sqlx::FromRow)]
+    pub struct PostDetail {
+        id: u64,
+        category_id: u64,
+        title: String,
+        description: Option<String>,
+        body: Option<String>,
+        created_at: Option<chrono::DateTime<chrono::Local>>,
+        updated_at: Option<chrono::DateTime<chrono::Local>>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    pub struct ListParams {
+        category_id: Option<u64>,
+    }
+
+    pub async fn list(
+        State(AppState { ref db }): State<AppState>,
+        Query(params): Query<ListParams>,
+    ) -> impl IntoResponse {
+        let sql = r#"
+            SELECT
+                `p`.`id`,
+                `p`.`category_id`,
+                `c`.`name` AS `category_name`,
+                `p`.`title`,
+                `p`.`description`, 
+                `p`.`created_at`, 
+                `p`.`updated_at`
+            FROM `posts` AS `p`
+            JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
+            WHERE `p`.`deleted_at` IS NULL
+        "#;
+
+        let mut query_builder = QueryBuilder::new(sql);
+        // Filters
+        if let Some(category_id) = params.category_id {
+            query_builder
+                .push(" AND `p`.`category_id` = ")
+                .push_bind(category_id);
+        }
+
+        let rows = query_builder
+            .build_query_as::<Post>()
+            .fetch_all(db)
+            .await
+            .unwrap();
+
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "ok",
+                "data": rows,
+            })),
+        );
+    }
+
+    pub async fn get(
+        State(AppState { ref db }): State<AppState>,
+        Path(id): Path<u64>,
+    ) -> impl IntoResponse {
+        let sql = r#"
+            SELECT
+                `p`.`id`,
+                `p`.`category_id`,
+                `c`.`category_name`,
+                `p`.`title`,
+                `p`.`description`,
+                `p`.`body`,
+                `p`.`created_at`,
+                `p`.`updated_at`
+            FROM `posts` AS `p`
+            JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
+            WHERE
+                `id` = ?
+                AND `deleted_at` IS NULL
+            LIMIT 1
+        "#;
+
+        let res = sqlx::query_as::<_, PostDetail>(sql)
+            .bind(id)
+            .fetch_optional(db)
+            .await
+            .unwrap();
+
+        match res {
+            Some(post) => {
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "message": "ok",
+                        "data": post,
+                    })),
+                );
+            }
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "message": "文章不存在或已经被删除",
+                    })),
+                );
+            }
+        }
+    }
+
+    pub async fn create(
+        State(AppState { ref db }): State<AppState>,
+        Json(req): Json<CreatePost>,
+    ) -> impl IntoResponse {
+        let sql = r#"
+            INSERT INTO `posts` (`category_id`, `title`, `description`, `body`, `created_at`, `updated_at`)
+            VALUES (?, ?, ?, NOW(), NOW())
+        "#;
+
+        let res = sqlx::query(sql)
+            .bind(req.category_id)
+            .bind(req.title)
+            .bind(req.description)
+            .bind(req.body)
+            .execute(db)
+            .await
+            .unwrap();
+
+        let new_id = res.last_insert_id();
+
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "ok",
+                "data": {
+                    "new_id": new_id
+                }
+            })),
+        )
     }
 
     pub async fn update() -> impl IntoResponse {
         "Update post"
     }
 
-    pub async fn delete() -> impl IntoResponse {
-        "Delete post"
+    pub async fn delete(
+        State(AppState { ref db }): State<AppState>,
+        Path(id): Path<u64>,
+    ) -> impl IntoResponse {
+        let sql = "DELETE FROM `posts` WHERE `id` = ? AND `deleted_at` IS NOT NULL";
+
+        let res = sqlx::query(sql).bind(id).execute(db).await.unwrap();
+
+        if res.rows_affected() > 0 {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "ok",
+                })),
+            );
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "message": "文章不存在或已经被删除",
+                })),
+            );
+        }
     }
 
-    pub async fn soft_delete() -> impl IntoResponse {
-        "Soft delete post"
+    pub async fn soft_delete(
+        State(AppState { ref db }): State<AppState>,
+        Path(id): Path<u64>,
+    ) -> impl IntoResponse {
+        let sql = "UPDATE `posts` SET `deleted_at` = NOW() WHERE `id` = ? AND `deleted_at` IS NULL";
+
+        let res = sqlx::query(sql).bind(id).execute(db).await.unwrap();
+
+        if res.rows_affected() > 0 {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "ok",
+                })),
+            );
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "message": "文章不存在或已经被删除",
+                })),
+            );
+        }
+    }
+
+    pub async fn recover(
+        State(AppState { ref db }): State<AppState>,
+        Path(id): Path<u64>,
+    ) -> impl IntoResponse {
+        let sql =
+            "UPDATE `posts` SET `deleted_at` = NULL WHERE `id` = ? AND `deleted_at` IS NOT NULL";
+
+        let res = sqlx::query(sql).bind(id).execute(db).await.unwrap();
+
+        if res.rows_affected() > 0 {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "ok",
+                })),
+            );
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "message": "文章已经被恢复",
+                })),
+            );
+        }
     }
 }
