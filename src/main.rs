@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use axum::{http::Method, routing, Router};
-use hjkl1_rsful::{app_state::AppState, handler::{categories, posts}};
+use hjkl1_rsful::{app_state::AppState, layer::cors::cors_middleware, handler::{categories, posts}};
 use sqlx::mysql::MySqlPoolOptions;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
@@ -19,16 +19,6 @@ async fn main() {
         .connect(&db_connection_str)
         .await
         .unwrap();
-
-    let cors_middleware = CorsLayer::new()
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::PATCH,
-            Method::DELETE,
-        ])
-        .allow_origin(Any);
 
     // Router
     let app = Router::new()
@@ -54,7 +44,7 @@ async fn main() {
             "/categories/:id/soft_delete",
             routing::delete(categories::soft_delete::handler),
         )
-        .layer(cors_middleware)
+        .layer(cors_middleware())
         .with_state(AppState { db: pool });
 
     // Tcp listener
