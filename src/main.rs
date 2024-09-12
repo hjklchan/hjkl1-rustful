@@ -24,7 +24,15 @@ async fn main() {
         .await
         .unwrap();
 
-    let cors_middleware = CorsLayer::new().allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE]).allow_origin(Any);
+    let cors_middleware = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
+        .allow_origin(Any);
 
     // Router
     let app = Router::new()
@@ -41,6 +49,7 @@ async fn main() {
         // Categories
         .route("/categories", routing::post(categories::create))
         .route("/categories", routing::get(categories::list))
+        .route("/categories/tree", routing::get(categories::tree))
         .route("/categories/:id", routing::get(categories::get))
         .route("/categories/:id", routing::put(categories::update))
         .route("/categories/:id", routing::delete(categories::delete))
@@ -83,6 +92,13 @@ mod categories {
         pub description: Option<String>,
     }
 
+    #[derive(Debug, sqlx::FromRow)]
+    struct CategoryRow {
+        pub id: u64,
+        pub parent_id: u64,
+        pub name: String,
+    }
+
     #[derive(Debug, serde::Deserialize)]
     pub struct ListParams {
         parent_id: Option<i64>,
@@ -110,6 +126,36 @@ mod categories {
                 "data": rows
             })),
         )
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    pub struct TreeParams {
+        parent_id: Option<i64>,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    pub struct TreeNode {
+        id: u64,
+        name: String,
+        children: Vec<TreeNode>,
+    }
+
+    pub fn build_tree(categories: Vec<CategoryRow>) {
+        // TODO
+    }
+
+    pub async fn tree(
+        State(AppState { ref db }): State<AppState>,
+        Query(params): Query<TreeParams>,
+    ) -> impl IntoResponse {
+        let sql = "SELECT `id`, `name`, `parent_id` FROM `categories`";
+
+        let rows = sqlx::query_as::<_, CategoryRow>(sql)
+            .fetch_all(db)
+            .await
+            .unwrap();
+
+        // TODO tree()
     }
 
     pub async fn get(State(AppState { ref db }): State<AppState>) -> impl IntoResponse {
