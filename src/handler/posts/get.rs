@@ -11,6 +11,7 @@ use chrono;
 pub struct PostDetail {
     id: u64,
     category_id: u64,
+    category_name: String,
     title: String,
     description: Option<String>,
     body: Option<String>,
@@ -26,7 +27,7 @@ pub async fn handler(
             SELECT
                 `p`.`id`,
                 `p`.`category_id`,
-                `c`.`category_name`,
+                `c`.`name` AS `category_name`,
                 `p`.`title`,
                 `p`.`description`,
                 `p`.`body`,
@@ -35,8 +36,8 @@ pub async fn handler(
             FROM `posts` AS `p`
             JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
             WHERE
-                `id` = ?
-                AND `deleted_at` IS NULL
+                `p`.`id` = ?
+                AND `p`.`deleted_at` IS NULL
             LIMIT 1
         "#;
 
@@ -48,6 +49,9 @@ pub async fn handler(
 
     match res {
         Some(post) => {
+            let sql = "UPDATE `posts` SET `num_views` = `num_views` + 1 WHERE id = ?";
+            sqlx::query(sql).bind(id).execute(db).await.unwrap();
+
             return (
                 StatusCode::OK,
                 Json(serde_json::json!({

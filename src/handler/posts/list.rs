@@ -16,13 +16,13 @@ pub struct ListParams {
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct Post {
-    id: u64,
-    category_id: u64,
-    category_name: String,
-    title: String,
-    description: Option<String>,
-    created_at: Option<chrono::DateTime<chrono::Local>>,
-    updated_at: Option<chrono::DateTime<chrono::Local>>,
+    pub id: u64,
+    pub category_id: u64,
+    pub category_name: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub created_at: Option<chrono::DateTime<chrono::Local>>,
+    pub updated_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 pub async fn handler(

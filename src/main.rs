@@ -1,7 +1,11 @@
 use std::time::Duration;
 
 use axum::{http::Method, routing, Router};
-use hjkl1_rsful::{app_state::AppState, layer::cors::cors_middleware, handler::{categories, posts}};
+use hjkl1_rsful::{
+    app_state::AppState,
+    handler::{categories, posts},
+    layer::cors::cors_middleware,
+};
 use sqlx::mysql::MySqlPoolOptions;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
@@ -25,13 +29,17 @@ async fn main() {
         // Posts
         .route("/posts", routing::get(posts::list::handler))
         .route("/posts/:id", routing::get(posts::get::handler))
+        .route("/posts/markdown", routing::get(posts::markdown::handler)) // test
         .route("/posts/:id", routing::put(posts::update::handler))
         .route("/posts/:id", routing::delete(posts::delete::handler))
         .route(
             "/posts/:id/soft_delete",
             routing::delete(posts::soft_delete::handler),
         )
-        .route("/posts/:id/recover", routing::patch(posts::recover::handler))
+        .route(
+            "/posts/:id/recover",
+            routing::patch(posts::recover::handler),
+        )
         .route("/posts", routing::post(posts::create::handler))
         // Categories
         .route("/categories", routing::post(categories::create::handler))
@@ -39,7 +47,10 @@ async fn main() {
         .route("/categories/tree", routing::get(categories::tree::handler))
         .route("/categories/:id", routing::get(categories::get::handler))
         .route("/categories/:id", routing::put(categories::update::handler))
-        .route("/categories/:id", routing::delete(categories::delete::handler))
+        .route(
+            "/categories/:id",
+            routing::delete(categories::delete::handler),
+        )
         .route(
             "/categories/:id/soft_delete",
             routing::delete(categories::soft_delete::handler),
