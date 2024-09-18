@@ -8,10 +8,13 @@ use chrono;
 use sqlx::QueryBuilder;
 
 use crate::app_state::AppState;
+use crate::utils::pagination;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ListParams {
     category_id: Option<u64>,
+    page: Option<u64>,
+    page_size: Option<u64>,
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -39,7 +42,7 @@ pub async fn handler(
                 `p`.`created_at`, 
                 `p`.`updated_at`
             FROM `posts` AS `p`
-            JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
+            LEFT JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
             WHERE `p`.`deleted_at` IS NULL
         "#;
 
@@ -50,6 +53,17 @@ pub async fn handler(
             .push(" AND `p`.`category_id` = ")
             .push_bind(category_id);
     }
+
+    // Pagination
+    let page = params.page.unwrap_or_else(|| 0);
+    let page_size = params.page_size.unwrap_or_else(|| 15);
+    // Compute the offset and limit for the pagination
+    let (offset, limit) = pagination::compute(page as u32, page_size as u32);
+    // Prepare OFFSET and LIMIT
+    query_builder.push(" LIMIT ").push_bind(limit);
+    query_builder.push(" OFFSET ").push_bind(offset);
+
+    println!("{} {}", offset, limit);
 
     let rows = query_builder
         .build_query_as::<Post>()
