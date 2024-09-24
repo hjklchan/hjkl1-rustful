@@ -18,6 +18,11 @@ pub struct ListParams {
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct PostCount {
+    count: i32,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct Post {
     pub id: u64,
     pub category_id: u64,
@@ -28,10 +33,38 @@ pub struct Post {
     pub updated_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct ListResponse {
+    items: Vec<Post>,
+    total: u64,
+    page_size: u64,
+    has_prev: bool,
+    has_next: bool,
+}
+
 pub async fn handler(
     State(AppState { ref db }): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> impl IntoResponse {
+    let sql = r#"
+        SELECT
+            COUNT(`p`.`id`) AS `count`
+        FROM `posts` AS `p`
+        JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
+        WHERE `p`.`deleted_at` IS NULL
+    "#;
+
+    let mut query_builder = QueryBuilder::new(sql);
+    // Filters
+    if let Some(category_id) = params.category_id {
+        query_builder
+            .push(" AND `p`.`category_id` = ")
+            .push_bind(category_id);
+    }
+
+    let result = query_builder.build_query_as::<PostCount>().fetch_one(db).await.unwrap();
+    let count = result.count;
+
     let sql = r#"
             SELECT
                 `p`.`id`,
@@ -42,7 +75,7 @@ pub async fn handler(
                 `p`.`created_at`, 
                 `p`.`updated_at`
             FROM `posts` AS `p`
-            LEFT JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
+            JOIN `categories` AS `c` ON `c`.`id` = `p`.`category_id`
             WHERE `p`.`deleted_at` IS NULL
         "#;
 
@@ -63,19 +96,30 @@ pub async fn handler(
     query_builder.push(" LIMIT ").push_bind(limit);
     query_builder.push(" OFFSET ").push_bind(offset);
 
-    println!("{} {}", offset, limit);
-
     let rows = query_builder
         .build_query_as::<Post>()
         .fetch_all(db)
         .await
         .unwrap();
 
+    let total_pages = count as u64 / page_size;
+
+    let has_next = page < total_pages;
+    let has_prev = page == 1;
+
+    let list_response = ListResponse {
+        items: rows,
+        total: count as u64,
+        page_size,
+        has_prev,
+        has_next,
+    };
+
     return (
         StatusCode::OK,
         Json(serde_json::json!({
             "message": "ok",
-            "data": rows,
+            "data": list_response,
         })),
     );
 }
