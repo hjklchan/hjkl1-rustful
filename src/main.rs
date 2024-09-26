@@ -59,7 +59,7 @@ async fn main() {
         .with_state(AppState { db: pool });
 
     // Tcp listener
-    let tcp_listener = TcpListener::bind("0.0.0.0:8000").await.unwrap();
+    let tcp_listener = TcpListener::bind("0.0.0.0:9000").await.unwrap();
 
     axum::serve(tcp_listener, app).await.unwrap();
 }
