@@ -103,7 +103,7 @@ pub async fn handler(
         .unwrap();
 
     // FIXME Miscalculation
-    let total_pages = count as u64 / page_size;
+    let total_pages = (count as u64 + page_size - 1) / page_size;
 
     let has_next = page < total_pages;
     let has_prev = page != 1;
