@@ -88,7 +88,7 @@ pub async fn handler(
     }
 
     // Pagination
-    let page = params.page.unwrap_or_else(|| 0);
+    let page = params.page.unwrap_or_else(|| 1);
     let page_size = params.page_size.unwrap_or_else(|| 15);
     // Compute the offset and limit for the pagination
     let (offset, limit) = pagination::compute(page as u32, page_size as u32);
@@ -102,10 +102,11 @@ pub async fn handler(
         .await
         .unwrap();
 
+    // FIXME Miscalculation
     let total_pages = count as u64 / page_size;
 
     let has_next = page < total_pages;
-    let has_prev = page == 1;
+    let has_prev = page != 1;
 
     let list_response = ListResponse {
         items: rows,
