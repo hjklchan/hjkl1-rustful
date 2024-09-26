@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::{http::Method, routing, Router};
 use hjkl1_rsful::{
     app_state::AppState,
-    handler::{categories, posts},
+    handler::{categories, health, posts},
     layer::cors::cors_middleware,
 };
 use sqlx::mysql::MySqlPoolOptions;
@@ -55,6 +55,7 @@ async fn main() {
             "/categories/:id/soft_delete",
             routing::delete(categories::soft_delete::handler),
         )
+        .route("/health", routing::get(health::handler))
         .layer(cors_middleware())
         .with_state(AppState { db: pool });
 
