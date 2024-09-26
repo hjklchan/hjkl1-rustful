@@ -89,7 +89,7 @@ pub async fn handler(
 
     // Pagination
     let page = params.page.unwrap_or_else(|| 1);
-    let page_size = params.page_size.unwrap_or_else(|| 15);
+    let page_size = params.page_size.unwrap_or_else(|| 25);
     // Compute the offset and limit for the pagination
     let (offset, limit) = pagination::compute(page as u32, page_size as u32);
     // Prepare OFFSET and LIMIT
