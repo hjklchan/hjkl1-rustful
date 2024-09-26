@@ -11,4 +11,5 @@ pub fn cors_middleware() -> CorsLayer {
             Method::DELETE,
         ])
         .allow_origin(Any)
+        .allow_headers(Any)
 }
